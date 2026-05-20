@@ -47,15 +47,11 @@
 
     <h2>Method</h2>
     <ul>
-      <li><strong>Adjoint learning.</strong> We differentiate through the equilibrium
-      constraint using implicit differentiation, avoiding unrolling and matching the
-      memory profile of DEQ-style models.</li>
-      <li><strong>Receding-horizon control.</strong> The adjoint signal drives a neural
-      policy that is refined online over a finite horizon, balancing planning depth
-      and compute.</li>
-      <li><strong>Equilibrium-aware training.</strong> The method composes with both
-      physics simulators and learned equilibrium models (e.g. DEQ-style energy
-      networks trained from force&ndash;strain data).</li>
+      <li><strong>Proxy-adjoint learning.</strong> We differentiate through equilibrium constraints via implicit differentiation and proxy sensitivity dynamics, computing trajectory-dependent gradients without unrolling equilibrium solver iterations.</li>
+
+      <li><strong>Receding-horizon continuation.</strong> We optimize neural continuation policies over short horizons and repeatedly re-anchor to realized equilibria, improving robustness in long-horizon and multi-stable control.</li>
+
+      <li><strong>Equilibrium-consistent control.</strong> The framework composes with physics simulators and learned equilibrium models while preserving branch-consistent equilibrium rollouts for equilibrium-governed systems.</li>
     </ul>
 
     <h2>Tasks</h2>
