@@ -1,13 +1,16 @@
-## Neural Control: Adjoint Learning Through Equilibrium Constraints
+## [Neural Control: Adjoint Learning Through Equilibrium Constraints](https://henryzh007.github.io/neural-control/index.html)
 
-This repository contains the C++ quasi-static rod simulator and the Python
-learning scripts used in the manuscript *"Neural Control: Adjoint Learning
-Through Equilibrium Constraints"*. The simulator is exposed to Python through
-`pybind11` as the module `nn_der`, and the learning scripts in
-`learning_scripts/` use it as a differentiable forward model for the three
+This repository contains the C++ simulator, Python
+learning scripts and website codes.
+
+The simulator is exposed to Python through
+`pybind11` as the module `nn_der`. The simulation codes are in `src/` and the learning scripts in
+`learning_scripts/`. These python scripts use different method to solve the gradient for the three
 control tasks reported in the paper.
 
----
+Here's our [website](https://henryzh007.github.io/neural-control/index.html).
+
+***
 
 ### Repository layout
 
@@ -23,10 +26,8 @@ control tasks reported in the paper.
 - `targets/` &mdash; target trajectories / shapes used by Tasks 2 and 3.
 - `common.py`, `utils.py` &mdash; shared helpers (policy network, simulator
   reset, animation, thread configuration).
-- `run_experiments.sh` &mdash; convenience launcher that runs a batch of
   experiments back-to-back.
-- `experimental_results/`, `simulation_results/` &mdash; output directories
-  populated by the learning scripts.
+- `experimental_results/`, `simulation_results/` &mdash; output directories populated by the learning scripts.
 
 ***
 
@@ -45,28 +46,17 @@ System dependencies (tested on Ubuntu 20.04&ndash;24.04 with Python 3.10+):
 - SymEngine (built with `-DWITH_LLVM=on`)
 - OpenGL / GLUT (`libglu1-mesa-dev freeglut3-dev mesa-common-dev`)
 - pybind11 (`pip install pybind11`)
-- Python packages: `torch`, `numpy`, `matplotlib`
+- Python packages: `torch`, `numpy`
 
-Before configuring CMake, export the MKL root so that `find_package(MKL)`
-succeeds (use whichever variable name your MKL version expects):
-
-```bash
-export MKLROOT=/opt/intel/oneapi/mkl/2022.0.2   # older versions
-export MKL_DIR=/opt/intel/oneapi/mkl/2024.2     # newer versions
-```
-
-Then build and install the Python binding:
+Build and install the Python binding:
 
 ```bash
 mkdir build && cd build
 cmake ..
 make -j$(nproc)
 cd ..
-pip install -e .   # installs the `nn_der` Python package
+pip install -e .
 ```
-
-After a successful build, `python -c "import nn_der.nn_der"` should succeed
-from the repository root.
 
 #### 2. Run a single control experiment
 
@@ -76,9 +66,6 @@ learning rate, optimizer hyperparameters, etc.). To run a single experiment,
 launch the corresponding script from the repository root, for example:
 
 ```bash
-# Limit BLAS / MKL threads for stable per-iteration timings.
-export OMP_NUM_THREADS=1
-
 # Task 1 (any-node reaching) with the proposed Adjoint + RHC method.
 python3 learning_scripts/any_node_adjoint_RHC.py
 
@@ -89,8 +76,16 @@ python3 learning_scripts/middle_tracking_MPC.py
 python3 learning_scripts/letter_curve_icem.py
 ```
 
-The scripts write logs, learned policies, and rollouts under
-`experimental_results/` and `simulation_results/`.
+Each script writes its outputs as `.txt` files next to itself in
+`learning_scripts/`: a summary table (e.g.
+`middle_tracking_MPC.txt`, `letter_curve_icem.txt`) with per-case timing
+and best loss, plus per-case trajectories — control sequences
+(`*_u.txt`), node position histories (`*_positions.txt`), or loss
+histories (`*_loss.txt`) depending on the task. The `_adjoint_RHC.py`
+scripts additionally pop up a matplotlib animation window of the
+rollout (not saved to disk). The pre-populated `experimental_results/`
+and `simulation_results/` directories are reference outputs from the
+paper, not produced by these runs.
 
 #### 3. Tasks and methods
 
@@ -113,72 +108,17 @@ The naming convention is `<task>_<method>.py`:
 
 Any of the nine (task, method) combinations above can be launched directly.
 
-#### 4. Batch runs
+***
 
-`run_experiments.sh` chains several scripts back-to-back. Edit the
-uncommented block at the bottom of the file to choose which experiments to
-run, then:
+### Citation
 
-```bash
-bash run_experiments.sh
+If you find this work useful, please cite:
+
+```bibtex
+@inproceedings{neuralcontrol2026,
+  title     = {Neural Control: Adjoint Learning Through Equilibrium Constraints},
+  author    = {Author One and Author Two and Author Three and Author Four},
+  booktitle = {Proceedings of the International Conference on Machine Learning (ICML)},
+  year      = {2026}
+}
 ```
-
-#### 5. Reproducing the paper&rsquo;s figures
-
-The three tasks reported in the manuscript correspond to the three task
-prefixes above. To reproduce the main comparison, run, for each task, the
-`adjoint_RHC`, `MPC`, `noMPC`, `cem`, `icem`, and `spsa` variants and collect
-the loss / wall-clock numbers from the per-script logs.
-
-***
-
-### TODO
-
-#### High priority
-- [ ] Provide a minimal `requirements.txt` / `pyproject.toml` for the Python
-      side so that a fresh environment can install everything in one step.
-- [ ] Add a Dockerfile that pre-installs MKL, SymEngine, Eigen and builds
-      `nn_der` automatically.
-- [ ] Provide a single-entry-point CLI (`python -m neural_control --task ...
-      --method ...`) instead of one script per (task, method) pair.
-- [ ] Document every key in the per-script `CONFIG` dict (units, valid
-      ranges, effect on convergence).
-
-#### Medium priority
-- [ ] Extend the simulator binding to 3D rods (currently the experiments are
-      run with `enable_2d_sim = true`).
-- [ ] Expose the contact / friction parameters as Python-side knobs instead
-      of compile-time defaults.
-- [ ] Add unit tests for the adjoint gradient (finite-difference check
-      against the C++ Jacobian).
-- [ ] Add a deterministic-seed flag at the top of every learning script so
-      that all baselines share the same RNG protocol.
-
-#### Low priority
-- [ ] Replace the OpenGL/GLUT viewer with an optional Magnum-based renderer
-      for higher-quality figures.
-- [ ] Add a `learning_scripts/configs/` directory of YAML files so the
-      `CONFIG` dicts can be version-controlled separately from the code.
-- [ ] Add a notebook walk-through that loads a saved policy and replays it
-      against the simulator.
-
-***
-
-### Completed
-
-- [x] C++ quasi-static rod simulator with stretching, bending, twisting,
-      gravity, damping, and IMC contact forces (`src/`).
-- [x] `pybind11` binding exposing the simulator as `nn_der.nn_der`
-      (`src/app.cpp`, `CMakeLists.txt`, `setup.py`).
-- [x] Adjoint + Receding-Horizon-Control implementation for all three tasks
-      (`*_adjoint_RHC.py`).
-- [x] Adjoint-based MPC and open-loop adjoint baselines
-      (`*_MPC.py`, `*_noMPC.py`).
-- [x] Derivative-free baselines: CEM, iCEM, SPSA
-      (`*_cem.py`, `*_icem.py`, `*_spsa.py`) on all three tasks.
-- [x] Validation on a learned DEQ-style equilibrium model trained from
-      real slinky force&ndash;strain data (materials linked in the rebuttal
-      supplement).
-- [x] Quantitative comparison of time / memory complexity and best loss
-      across all three tasks (see manuscript Table and supplement).
-- [x] Original task videos and rollouts under `experimental_results/`.
