@@ -43,9 +43,9 @@ System dependencies (tested on Ubuntu 20.04&ndash;24.04 with Python 3.10+):
 
 - Eigen 3.4.0
 - Intel oneAPI MKL (Pardiso + BLAS/LAPACK backend for Eigen)
-- SymEngine (built with `-DWITH_LLVM=on`)
-- OpenGL / GLUT (`libglu1-mesa-dev freeglut3-dev mesa-common-dev`)
-- pybind11 (`pip install pybind11`)
+- SymEngin
+- OpenGL / GLUT
+- pybind11
 - Python packages: `torch`, `numpy`
 
 Build and install the Python binding:
