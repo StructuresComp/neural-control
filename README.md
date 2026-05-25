@@ -1,4 +1,4 @@
-## [Neural Control: Adjoint Learning Through Equilibrium Constraints](https://henryzh007.github.io/neural-control/index.html)
+## [Neural Control: Adjoint Learning Through Equilibrium Constraints](https://github.com/StructuresComp/neural-control/index.html)
 
 This repository contains the C++ simulator, Python
 learning scripts and website codes.
@@ -8,7 +8,7 @@ The simulator is exposed to Python through
 `learning_scripts/`. These python scripts use different method to solve the gradient for the three
 control tasks reported in the paper.
 
-Here's our [website](https://henryzh007.github.io/neural-control/index.html).
+Here's our [website](https://github.com/StructuresComp/neural-control/index.html).
 
 ***
 
@@ -39,7 +39,7 @@ The simulator must be compiled before any learning script can run. The build
 follows a standard CMake + `pip install -e .` flow and produces
 `nn_der/nn_der*.so`, which the Python scripts import as `nn_der.nn_der`.
 
-System dependencies (tested on Ubuntu 20.04&ndash;24.04 with Python 3.10+):
+System dependencies (recommend Ubuntu 20.04 with Python 3.11):
 
 - Eigen 3.4.0
 - Intel oneAPI MKL (Pardiso + BLAS/LAPACK backend for Eigen)
@@ -77,15 +77,14 @@ python3 learning_scripts/letter_curve_icem.py
 ```
 
 Each script writes its outputs as `.txt` files next to itself in
-`learning_scripts/`: a summary table (e.g.
-`middle_tracking_MPC.txt`, `letter_curve_icem.txt`) with per-case timing
-and best loss, plus per-case trajectories — control sequences
-(`*_u.txt`), node position histories (`*_positions.txt`), or loss
+`learning_scripts/`: a summary table, node position histories (`*_positions.txt`), or loss
 histories (`*_loss.txt`) depending on the task. The `_adjoint_RHC.py`
 scripts additionally pop up a matplotlib animation window of the
-rollout (not saved to disk). The pre-populated `experimental_results/`
+rollout. 
+
+The pre-populated `experimental_results/`
 and `simulation_results/` directories are reference outputs from the
-paper, not produced by these runs.
+paper.
 
 #### 3. Tasks and methods
 
