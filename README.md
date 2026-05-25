@@ -12,25 +12,6 @@ Here's our [website](https://github.com/StructuresComp/neural-control/index.html
 
 ***
 
-### Repository layout
-
-- `src/` &mdash; C++ quasi-static elastic-rod simulator (stretching, bending,
-  twisting, gravity, damping, IMC contact, Newton solver with line search).
-  `src/app.cpp` exposes the simulator to Python through `pybind11`.
-- `nn_der/` &mdash; build output directory for the Python extension
-  `nn_der.nn_der` (`nn_der*.so`).
-- `learning_scripts/` &mdash; Python control scripts for the three tasks, one
-  file per (task, method) pair.
-- `learning_scripts/inputs/` &mdash; initial rod geometry and target shapes
-  (`vertices*.txt`, `C_initial.txt`, `M_initial.txt`, `U_initial.txt`).
-- `targets/` &mdash; target trajectories / shapes used by Tasks 2 and 3.
-- `common.py`, `utils.py` &mdash; shared helpers (policy network, simulator
-  reset, animation, thread configuration).
-  experiments back-to-back.
-- `experimental_results/`, `simulation_results/` &mdash; output directories populated by the learning scripts.
-
-***
-
 ### How to use
 
 #### 1. Build the C++ simulator binding
