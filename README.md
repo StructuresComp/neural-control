@@ -10,7 +10,7 @@ targeting, trajectory tracing, and shape control &mdash; where it achieves
 orders-of-magnitude lower tracking error at a fraction of the compute cost of
 derivative-free baselines.
 
-Go to our [website](https://github.com/StructuresComp/neural-control/index.html) for more details.
+Go to our [website](https://structurescomp.github.io/neural-control/) for more details.
 
 The simulator is exposed to Python through
 `pybind11` as the module `nn_der`. The simulation codes are in `src/` and the learning scripts in
