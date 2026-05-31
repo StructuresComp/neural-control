@@ -4,7 +4,7 @@ We present Neural Control, a proxy-adjoint learning framework for controlling so
 orders-of-magnitude lower tracking error at a fraction of the compute cost of
 derivative-free baselines.
 
-Go to our [website](https://structurescomp.github.io/neural-control/) for more details.
+Go to our [website](https://structurescomp.github.io/neural-control/). See our [paper](https://arxiv.org/abs/2605.03288) for more details.
 
 The simulation codes are in `src/` and the learning scripts in
 `learning_scripts/`. These python scripts use different method to solve the gradient for the three
