@@ -123,7 +123,10 @@ def compute_dL_dtheta(
     # store A_i, B_i, and dxf/dxb for adjoint
     A_list = np.zeros((T, 4, 4), dtype=np.float32)
     B_list = np.zeros((T, 4, 3), dtype=np.float32)
-    dXf_dXb_list = []
+    # Matrix-free adjoint: store regularized G_x and -G_z per step instead of
+    # forming the dense sensitivity S = G_x^{-1}(-G_z).
+    Gx_list = []
+    Gz_list = []
     vertices_list = []
 
     for i in range(T):
@@ -145,8 +148,9 @@ def compute_dL_dtheta(
         lhs = jac[4:-4, 4:-4]
         rhs = -jac[4:-4, -4:]
         lhs_reg = lhs + jac_reg * np.eye(lhs.shape[0], dtype=np.float32)
-        dxf_dxb = np.linalg.solve(lhs_reg, rhs)  # (N-4)*2 x 4
-        dXf_dXb_list.append(dxf_dxb)
+        # Matrix-free adjoint: never form S; cache G_x (regularized) and -G_z.
+        Gx_list.append(lhs_reg)
+        Gz_list.append(rhs)
 
         # Build A, B for boundary states
         x2, y2 = v2_1
@@ -191,9 +195,18 @@ def compute_dL_dtheta(
     v_u = np.zeros((T, 3), dtype = np.float32)
     I4 = np.eye(4, dtype=np.float32)
 
+    def StProd(i, v):
+        # Matrix-free S^T v (Eqs. 31-32): solve G_x^T p = v, return -G_z^T p.
+        try:
+            p = np.linalg.solve(Gx_list[i].T, v)
+        except np.linalg.LinAlgError:
+            p = np.linalg.lstsq(Gx_list[i].T, v, rcond=None)[0]
+        return Gz_list[i].T @ p
+
     for i in range(T-1, -1, -1):
-        v_u[i] = dlam * B_list[i].T @ lam_b + dlam * (dXf_dXb_list[i] @ B_list[i]).T @ lam_f
-        lam_b = (I4 + dlam * A_list[i].T) @ lam_b + dlam * (dXf_dXb_list[i] @ A_list[i]).T @ lam_f
+        s_i = StProd(i, lam_f)
+        v_u[i] = dlam * B_list[i].T @ lam_b + dlam * B_list[i].T @ s_i
+        lam_b = (I4 + dlam * A_list[i].T) @ lam_b + dlam * A_list[i].T @ s_i
 
     # ---- 4) one torch VJP: grads = (du/dtheta)^T v_u ----
     v_u_torch = torch.tensor(v_u, dtype=u_seq_torch.dtype, device=u_seq_torch.device)  # (T,3)

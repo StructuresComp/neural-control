@@ -122,7 +122,10 @@ def compute_dL_dtheta(
     # Pre-allocate lists for adjoint
     A_list = np.zeros((T, 8, 8), dtype=np.float64)
     B_list = np.zeros((T, 8, 2), dtype=np.float64)
-    dXf_dXb_list = []
+    # Matrix-free adjoint: store regularized G_x and -G_z per step instead of
+    # forming the dense sensitivity S = G_x^{-1}(-G_z).
+    Gx_list = []
+    Gz_list = []
     vertices_list = []
 
     buckled = False
@@ -156,16 +159,20 @@ def compute_dL_dtheta(
         rhs = -np.hstack((jac[4:-4, :4], jac[4:-4, -4:]))
 
         lhs_reg = lhs + jac_reg * np.eye(lhs.shape[0], dtype=np.float64)
-        try:
-            dxf_dxb = np.linalg.solve(lhs_reg, rhs)
-        except np.linalg.LinAlgError:
-            dxf_dxb = np.linalg.lstsq(lhs_reg, rhs, rcond=None)[0]
 
-        dXf_dXb_list.append(dxf_dxb)
+        # Matrix-free adjoint: never form S; cache G_x (regularized) and -G_z.
+        Gx_list.append(lhs_reg)
+        Gz_list.append(rhs)
 
-        # Check for buckling
+        # Check for buckling. The forward product S @ delta is computed as a
+        # single forward solve G_x (S @ delta) = (-G_z) @ delta, without S.
         xf0_k = vertices_list[-1][4:-4] if vertices_list else verts0_xy.reshape(-1)[4:-4]
-        xf_try = xf0_k + dxf_dxb @ (xb_k - xb0_k)
+        delta = xb_k - xb0_k
+        try:
+            Svd = np.linalg.solve(lhs_reg, rhs @ delta)
+        except np.linalg.LinAlgError:
+            Svd = np.linalg.lstsq(lhs_reg, rhs @ delta, rcond=None)[0]
+        xf_try = xf0_k + Svd
         xf_k = vertices_flat[4:-4]
         e_metric = np.linalg.norm(xf_try - xf_k)
         if e_metric > 0.1 and i != 0:
@@ -198,13 +205,21 @@ def compute_dL_dtheta(
     v_u = np.zeros((T, 2), dtype=np.float64)
     I8 = np.eye(8, dtype=np.float64)
 
+    def StProd(i, v):
+        # Matrix-free S^T v (Eqs. 31-32): solve G_x^T p = v, return -G_z^T p.
+        try:
+            p = np.linalg.solve(Gx_list[i].T, v)
+        except np.linalg.LinAlgError:
+            p = np.linalg.lstsq(Gx_list[i].T, v, rcond=None)[0]
+        return Gz_list[i].T @ p
+
     for i in range(T - 1, -1, -1):
-        dxf_dxb = dXf_dXb_list[i]
         A = A_list[i]
         B = B_list[i]
 
-        v_u[i] = dlam * (B.T @ lam_b) + dlam * ((dxf_dxb @ B).T @ lam_f)
-        lam_b = (I8 + dlam * A.T) @ lam_b + dlam * ((dxf_dxb @ A).T @ lam_f)
+        s_i = StProd(i, lam_f)
+        v_u[i] = dlam * (B.T @ lam_b) + dlam * (B.T @ s_i)
+        lam_b = (I8 + dlam * A.T) @ lam_b + dlam * (A.T @ s_i)
 
     # Torch VJP
     v_u_torch = torch.tensor(v_u, dtype=u_seq_torch.dtype, device=u_seq_torch.device)

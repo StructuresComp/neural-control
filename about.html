@@ -28,46 +28,137 @@
   <article>
     <h1>About this work</h1>
     <p class="lede">
-      <strong>Neural Control: Adjoint Learning Through Equilibrium Constraints</strong> proposes a learning-based
-      controller for soft, deformable structures whose dynamics are governed by static
-      equilibrium constraints. Instead of unrolling expensive forward simulations through
-      every optimization step, we cast control as an adjoint-driven learning problem and
-      integrate it with receding-horizon control (RHC).
+      <strong>Neural Control: Adjoint Learning Through Equilibrium Constraints</strong> is a
+      boundary-control framework for long-horizon optimization through implicit
+      equilibria. At each step of a physical manipulation task, boundary controls are applied
+      and the resulting configuration is obtained by solving an equilibrium problem. Neural Control propagates gradients through branch-dependent sequences of such equilibrium solves via an proxy-adjoint formulation,
+      avoiding solver unrolling entirely. Combined with receding-horizon continuation (RHC),
+      it re-anchors optimization to realized equilibria at each segment, mitigating unintended
+      switches between equilibrium branches in multistable regimes. The method is validated on
+      simulated and real deformable linear object (DLO) manipulation, outperforming SPSA and
+      iCEM baselines by up to 195&times; in time while reaching substantially lower
+      loss under the same update budget.
     </p>
 
-    <h2>Problem setting</h2>
+    <h2>Problem Setting</h2>
     <p>
-      Many soft-structure manipulation tasks reduce to optimizing a control input
-      \(z\) so that the equilibrium state \(\varepsilon^\star\), defined implicitly by
-      \(G(\varepsilon^\star, z; \theta)=0\), tracks a target trajectory.
-      Classical derivative-free methods (iCEM, SPSA) repeatedly evaluate the
-      forward solver and scale poorly with horizon length; full backpropagation through
-      the implicit solver is memory-prohibitive.
+      We study systems where the state \(\mathbf{x}(\lambda)\) at each continuation step
+      \(\lambda \in [0,1]\) is defined implicitly by an equilibrium residual
+    </p>
+    <p style="text-align:center;">
+      \(\mathcal{G}(\mathbf{x}(\lambda),\,\mathbf{z}(\lambda)) = \mathbf{0},\)
+    </p>
+    <p>
+      Here \(\mathbf{z}(\lambda)\) denotes controllable quantities such as boundary conditions or
+      loads, driven by a neural controller \(\mathbf{u}(\lambda) = \mathbf{u}_\Theta(\lambda)\)
+      through known continuation dynamics \(d\mathbf{z}/d\lambda = f(\mathbf{z}, \mathbf{u})\).
+      In mechanics this represents quasi-static force balance: \(\mathcal{G}(\mathbf{x},\mathbf{z})
+      = \nabla_\mathbf{x} E(\mathbf{x},\mathbf{z}) - \mathbf{F}^{\text{ext}}\).
+    </p>
+    <p>
+      This sequential implicit setting introduces two compounding difficulties beyond differentiating
+      a single fixed point:
+    </p>
+    <ul>
+      <li>
+        <strong>Multistability and branch dependence.</strong> For the same control input \(\mathbf{z}\),
+        multiple stable equilibria may coexist. The realized state is selected by the previous
+        configuration and the basin of attraction of the warm-started solver.
+        Small boundary changes can therefore move the system to a different equilibrium branch,
+        making long-horizon credit assignment brittle.
+      </li>
+      <li>
+        <strong>Cost of backpropagation through iterative solvers.</strong> Each state requires
+        iterative solution. Naively differentiating through every inner
+        iteration across a long horizon is memory-intensive and numerically fragile near instabilities.
+      </li>
+    </ul>
+    <p>
+      A canonical example is robotic manipulation of deformable linear objects (DLOs) such as elastic
+      strips, where geometrically nonlinear deformation and multistable equilibria make
+      even seemingly simple shaping tasks highly nontrivial. DLO manipulation serves as the primary
+      testbed throughout this work.
     </p>
 
     <h2>Method</h2>
-    <ul>
-      <li><strong>Proxy-adjoint learning.</strong> We differentiate through equilibrium constraints via implicit differentiation and proxy sensitivity dynamics, computing trajectory-dependent gradients without unrolling equilibrium solver iterations.</li>
-
-      <li><strong>Receding-horizon continuation.</strong> We optimize neural continuation policies over short horizons and repeatedly re-anchor to realized equilibria, improving robustness in long-horizon and multi-stable control.</li>
-
-      <li><strong>Equilibrium-consistent control.</strong> The framework composes with physics simulators and learned equilibrium models while preserving branch-consistent equilibrium rollouts for equilibrium-governed systems.</li>
-    </ul>
+    <p>
+      The method has two components. First, <strong>proxy-adjoint gradients</strong> differentiate
+      through the equilibrium constraint \(\mathcal{G}(\mathbf{x},\mathbf{z})=\mathbf{0}\) via
+      implicit differentiation, computing \(\mathbf{S}^\top\mathbf{v}\) matrix-free through one
+      adjoint linear solve per step, without unrolling the inner Newton&ndash;CG iterations.
+      Along the realized branch, the proxy sensitivity dynamics are
+    </p>
+    <p style="text-align:center;">
+      \(\dfrac{d\mathbf{x}}{d\lambda} = \mathbf{S}(\lambda)\,f(\mathbf{z}(\lambda),\mathbf{u}(\lambda)),
+      \qquad \mathbf{S} := \partial\mathbf{x}/\partial\mathbf{z},\quad
+      \mathbf{G}_x\mathbf{S} = -\mathbf{G}_z.\)
+    </p>
+    <p>
+      The backward pass freezes \(\mathbf{S}(\lambda)\) as locally constant on each continuation
+      interval (frozen-tangent approximation), giving a proxy gradient that is first-order accurate
+      in \(\Delta\lambda\) under local regularity. Second, <strong>receding-horizon continuation
+      (RHC)</strong> re-anchors optimization to the realized equilibrium at the end of each short
+      segment of \(H\) steps, limiting frozen-tangent error accumulation and mitigating unintended
+      basin switches over long horizons.
+    </p>
+    <p style="font-style:italic; color:#555;">
+      For the full derivation, discrete backward recursions, pseudocode (Algorithm 1), and the
+      elastic strip energy model, see Section 3 and Appendices A&ndash;B of the paper.
+    </p>
 
     <h2>Tasks</h2>
+    <p>
+      All three tasks share the same forward simulator. Boundary DoFs define \(\mathbf{z}\);
+      free DoFs \(\mathbf{x}\) are solved implicitly and used to evaluate task losses.
+      The neural controller \(\mathbf{u}_\Theta(\lambda)\) is a lightweight MLP (hidden layers
+      \([64,64]\) or \([64,64,64]\), ReLU activations, tanh-bounded output) taking the scalar
+      \(\lambda\) as input.
+    </p>
     <ol>
-      <li><strong>Node targeting</strong> &mdash; drive a selected node of an elastic
-      strip to a prescribed position.</li>
-      <li><strong>Trajectory tracing</strong> &mdash; have the middle node follow a
-      prescribed curve over time.</li>
-      <li><strong>Shape control</strong> &mdash; deform the entire strip to match a
-      target configuration.</li>
+      <li>
+        <strong>Task 1: Point-to-point node targeting.</strong> A selected strip node \(i\) must
+        reach a target position \(\mathbf{p}_i^\star\) at the end of continuation. Loss:
+        \(\mathcal{L}_{\text{pos}} = \tfrac{1}{2}\|\mathbf{p}_i(1) - \mathbf{p}_i^\star\|_2^2\).
+        Both clamped ends are actuated in the transverse (\(x\)) direction;
+        \(\mathbf{u}(\lambda) \in \mathbb{R}^2\). Uses 200 optimizer updates.
+      </li>
+      <li>
+        <strong>Task 2: Midpoint trajectory tracking.</strong> The middle node must follow a
+        prescribed planar path \(\mathbf{p}^{\star}_{\text{mid}}(\lambda)\) (sinusoidal, circular,
+        square-wave, or triangular). Loss:
+        \(\mathcal{L}_{\text{traj}} = \int_0^1 \tfrac{1}{2}\|\mathbf{p}_{\text{mid}}(\lambda)
+        - \mathbf{p}^{\star}_{\text{mid}}(\lambda)\|_2^2\,d\lambda\).
+        Same two-end transverse actuation as Task 1. Uses 500 optimizer updates.
+      </li>
+      <li>
+        <strong>Task 3: Multistable shape formation.</strong> One clamped end is manipulated
+        (\(\mathbf{u}(\lambda) \in \mathbb{R}^3\): \(x,y\) displacement rates and in-plane
+        rotation rate) while the other end is passively clamped. For the same boundary condition,
+        multiple stable equilibria coexist (mirror-symmetric C-shapes, U/M-like shapes). The goal
+        is to reach the target branch, measured by curvature matching:
+        \(\mathcal{L}_\kappa = \int_0^L (\kappa(s;1) - \kappa^\star(s))^2\,ds\).
+        Uses 500 optimizer updates.
+      </li>
     </ol>
 
     <h2>Results</h2>
     <p>
-      Across all three tasks, Adjoint + RHC delivers orders-of-magnitude better
-      tracking loss than iCEM at a fraction of the wall-clock cost.
+      We compare four methods &mdash; SPSA, iCEM, Adjoint-only (full-horizon adjoint without RHC),
+      and Adjoint+RHC (our full method) &mdash; all sharing the same forward equilibrium simulator
+      and controller parameterization \(\mathbf{u}_\Theta(\lambda)\). They differ only in how
+      \(\Theta\) is updated and whether receding-horizon execution is used. CEM results (Appendix E
+      of the paper) follow the same trend.
+    </p>
+    <p>
+      On Task 1, all methods reduce loss early; both adjoint variants continue improving under the
+      fixed budget while gradient-free baselines plateau. Adjoint-only converges fastest in this
+      short-horizon regime. On Task 2, Adjoint-only succeeds on smooth references but struggles on
+      non-smooth targets where long-horizon error accumulates; Adjoint+RHC achieves consistent
+      convergence across all trajectory types. On Task 3 (the hardest regime), SPSA and iCEM
+      stagnate, Adjoint-only frequently locks into an incorrect branch, and Adjoint+RHC
+      consistently reaches the lowest curvature loss and correctly selects the target equilibrium branch.
+      Real-robot experiments on a 6-DoF arm confirm qualitative sim-to-real transfer under gravity
+      and experimentally identified material parameters.
     </p>
 
     <div class="table-wrap">
@@ -77,14 +168,14 @@
           <th rowspan="2">Method</th>
           <th rowspan="2">Time / update</th>
           <th rowspan="2">Memory / update</th>
-          <th colspan="2">Task 1</th>
-          <th colspan="2">Task 2</th>
-          <th colspan="2">Task 3</th>
+          <th colspan="2">Task 1 (200 updates)</th>
+          <th colspan="2">Task 2 (500 updates)</th>
+          <th colspan="2">Task 3 (500 updates)</th>
         </tr>
         <tr>
-          <th>Time (s)</th><th>Loss &darr;</th>
-          <th>Time (s)</th><th>Loss &darr;</th>
-          <th>Time (s)</th><th>Loss &darr;</th>
+          <th>Time (s) &darr;</th><th>Best Loss &darr;</th>
+          <th>Time (s) &darr;</th><th>Best Loss &darr;</th>
+          <th>Time (s) &darr;</th><th>Best Loss &darr;</th>
         </tr>
       </thead>
       <tbody>
@@ -106,7 +197,7 @@
         </tr>
         <tr>
           <td>Adjoint-only</td>
-          <td>\(\mathcal{O}(KC_{\text{eq}}+KC_{\text{lin}})\approx\mathcal{O}(KC_{\text{eq}})\)</td>
+          <td>\(\mathcal{O}(K(C_{\text{eq}}+C_{\text{lin}}))\)</td>
           <td>\(\mathcal{O}(K(n_x+n_z)+n_\Theta)\)</td>
           <td>176.0&plusmn;53.1</td><td>3.2e&minus;7&plusmn;5.6e&minus;7</td>
           <td>1111.2&plusmn;83.1</td><td>4.3e&minus;4&plusmn;5.4e&minus;4</td>
@@ -114,7 +205,7 @@
         </tr>
         <tr class="highlight">
           <td><strong>Adjoint + RHC</strong></td>
-          <td>\(\mathcal{O}(HC_{\text{eq}}+HC_{\text{lin}})\approx\mathcal{O}(HC_{\text{eq}})\)</td>
+          <td>\(\mathcal{O}(H(C_{\text{eq}}+C_{\text{lin}}))\)</td>
           <td>\(\mathcal{O}(H(n_x+n_z)+n_\Theta)\)</td>
           <td><strong>16.1&plusmn;2.8</strong></td><td><strong>2.3e&minus;7&plusmn;3.0e&minus;7</strong></td>
           <td><strong>186.9&plusmn;24.8</strong></td><td><strong>3.6e&minus;8&plusmn;3.6e&minus;8</strong></td>
@@ -123,15 +214,44 @@
       </tbody>
     </table>
     </div>
-
-    <h2>Validation on learned DEQ-style model</h2>
-    <p>
-      We additionally validate the approach on a learned equilibrium model
-      \(E_\theta(\varepsilon)\) trained from force&ndash;strain measurements of a real
-      slinky. Neural Control optimizes a force trajectory so the resulting
-      equilibrium strain matches \(\varepsilon^*(\lambda)=0.05\sin(2\pi\lambda)+0.05\),
-      achieving segment losses on the order of \(10^{-7}\)&ndash;\(10^{-8}\).
+    <p style="font-size:0.85em; color:#666; margin-top:0.5em;">
+      \(K\): continuation steps in a full-horizon rollout; \(H\): steps per RHC segment;
+      \(P\): iCEM population size; \(C_{\text{eq}}\): cost of one converged equilibrium solve;
+      \(C_{\text{lin}}\): cost of one adjoint/tangent linear solve;
+      \(n_x, n_z, n_\Theta\): dimensions of state, control, and controller parameters.
+      Wall-clock time sums all segment optimizations over the executed trajectory.
+      Mean &plusmn; std over four cases.
     </p>
+
+    <p>
+      We additionally validate on a learned DEQ-style implicit equilibrium model trained from
+      experimental force&ndash;strain data of a slinky: Neural Control successfully tracks a
+      sinusoidal strain reference with segment losses on the order of \(10^{-8}\)&ndash;\(10^{-11}\),
+      confirming the framework applies to any differentiable implicit model beyond analytical simulators.
+    </p>
+
+    <h2>TODO</h2>
+    <p>
+      Several directions remain open and are planned for future investigation:
+    </p>
+    <ul>
+      <li>
+        <strong>Beyond elastic strips: 2D/3D deformable bodies.</strong>
+        Extend the framework to shells and volumetric solids, where equilibrium solves are more expensive.
+      </li>
+      <li>
+        <strong>Addressing the frozen-tangent approximation near bifurcations.</strong>
+        The first-order accuracy guarantee breaks down when \(\mathbf{G}_x\) becomes ill-conditioned near bifurcations or high-curvature branches; improving gradient reliability in these regimes will be investigated in future work.
+      </li>
+      <li>
+        <strong>Unmodeled non-conservative effects.</strong>
+        Friction, hysteresis, and contact are currently unmodeled and limit sim-to-real transfer.
+      </li>
+      <li>
+        <strong>More diverse manipulation scenarios.</strong>
+        Future case studies will include knot tying, cable routing, and multi-arm cooperative manipulation.
+      </li>
+    </ul>
 
     <div class="back-link">
       <a href="index.html" class="btn-secondary">&larr; Back to Home</a>

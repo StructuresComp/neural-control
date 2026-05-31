@@ -132,7 +132,10 @@ def compute_dL_dtheta(
     # Pre-allocate lists for adjoint
     A_list = np.zeros((T, 8, 8), dtype=np.float64)
     B_list = np.zeros((T, 8, 2), dtype=np.float64)
-    dXf_dXb_list = []
+    # Matrix-free adjoint: store regularized G_x and -G_z per step instead of
+    # forming the dense sensitivity S = G_x^{-1}(-G_z).
+    Gx_list = []
+    Gz_list = []
     vertices_list = []
 
     for i in range(T):
@@ -162,12 +165,10 @@ def compute_dL_dtheta(
         rhs = -np.hstack((jac[4:-4, :4], jac[4:-4, -4:]))
 
         lhs_reg = lhs + jac_reg * np.eye(lhs.shape[0], dtype=np.float64)
-        try:
-            dxf_dxb = np.linalg.solve(lhs_reg, rhs)
-        except np.linalg.LinAlgError:
-            dxf_dxb = np.linalg.lstsq(lhs_reg, rhs, rcond=None)[0]
 
-        dXf_dXb_list.append(dxf_dxb)
+        # Matrix-free adjoint: never form S; cache G_x (regularized) and -G_z.
+        Gx_list.append(lhs_reg)
+        Gz_list.append(rhs)
 
         A = np.zeros((8, 8), dtype=np.float64)
         B = np.array([
@@ -194,31 +195,36 @@ def compute_dL_dtheta(
     if not compute_grads:
         return None, L_total, vertices_list
 
-    # Backward adjoint to compute v_u[i] = dl_i/du_i
-    I8 = np.eye(8, dtype=np.float64)
+    # Backward adjoint: single sweep with proxy costates (Algorithm 1 / Eqs. 40-44).
+    # Running loss is accumulated into the free/boundary costates a, g; one
+    # matrix-free S^T solve per step. A_list is zero here, so the (I + dlam A^T)
+    # propagation and the dlam A^T s cross-term vanish (g is a pure accumulator).
+    def StProd(i, v):
+        # Matrix-free S^T v (Eqs. 31-32): solve G_x^T p = v, return -G_z^T p.
+        try:
+            p = np.linalg.solve(Gx_list[i].T, v)
+        except np.linalg.LinAlgError:
+            p = np.linalg.lstsq(Gx_list[i].T, v, rcond=None)[0]
+        return Gz_list[i].T @ p
 
-    surrogate_total = u_seq_torch.new_tensor(0.0)
-    for k in range(T):
-        v_u = np.zeros((k + 1, 2), dtype=np.float64)
-        a_q = a_q_array[k] * dlam
-        lam_f = a_q[4:-4].copy()
-        lam_b = np.concatenate([a_q[:4], a_q[-4:]]).copy()
+    v_u = np.zeros((T, 2), dtype=np.float64)
+    a = np.zeros(2 * N - 8, dtype=np.float64)   # free costate
+    g = np.zeros(8, dtype=np.float64)           # boundary costate
 
-        for i in range(k, -1, -1):
-            dxf_dxb = dXf_dXb_list[i]
-            A = A_list[i]
-            B = B_list[i]
-            v_u[i] = dlam * (B.T @ lam_b) + dlam * ((dxf_dxb @ B).T @ lam_f)
-            lam_b = (I8 + dlam * A.T) @ lam_b + dlam * ((dxf_dxb @ A).T @ lam_f)
+    for i in range(T - 1, -1, -1):
+        a_q = a_q_array[i] * dlam
+        a = a + a_q[4:-4]                                   # accumulate grad_x ell_i (Eq. 40)
+        g = g + np.concatenate([a_q[:4], a_q[-4:]])         # accumulate grad_z ell_i (Eq. 41; A=0)
+        s_i = StProd(i, a)                                  # S_i^T a (one solve per step)
+        v_u[i] = dlam * (B_list[i].T @ (g + s_i))           # Eqs. 42-43
 
-        v_u_torch = torch.tensor(v_u, dtype=u_seq_torch.dtype, device=u_seq_torch.device)
-        u_seq_tmp = u_seq_torch[:k+1, :]
-        surrogate_total += (u_seq_tmp * v_u_torch).sum()
+    v_u_torch = torch.tensor(v_u, dtype=u_seq_torch.dtype, device=u_seq_torch.device)
+    surrogate = (u_seq_torch * v_u_torch).sum()
 
     # Torch VJP
     params = [p for p in policy_model.parameters() if p.requires_grad]
     grads_list = torch.autograd.grad(
-        surrogate_total, params, retain_graph=False, create_graph=False, allow_unused=False
+        surrogate, params, retain_graph=False, create_graph=False, allow_unused=False
     )
 
     return grads_list, L_total, vertices_list
